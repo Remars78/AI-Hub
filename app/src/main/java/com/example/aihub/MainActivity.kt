@@ -73,7 +73,7 @@ fun LLMScreen() {
     var isLoading by remember { mutableStateOf(false) }
     
     // Твой ключ Mistral (лучше хранить в local.properties и BuildConfig, но для теста хардкод)
-    val apiKey = "Bearer ТВОЙ_КЛЮЧ_MISTRAL" 
+    val apiKey = "5X0HVmkxwAaXnDl1mrbEC3uVEZrDHg8T" 
 
     Column(Modifier.fillMaxSize()) {
         // Список сообщений
