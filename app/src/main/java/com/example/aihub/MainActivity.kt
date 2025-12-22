@@ -14,7 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.AutoAwesome
+import androidx.compose.material.icons.filled.Star // ЗАМЕНИЛИ AutoAwesome на Star
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
@@ -348,8 +348,9 @@ fun IMGTab() {
         // Чекбокс улучшения
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = useEnhancer, onCheckedChange = { useEnhancer = it })
-            Text("Enhance prompt with Mistral (Recommended)")
-            if (useEnhancer) Icon(Icons.Default.AutoAwesome, null, tint = Color.Yellow, modifier = Modifier.padding(start = 4.dp))
+            Text("Enhance prompt with Mistral")
+            // ИСПОЛЬЗУЕМ ЗВЕЗДОЧКУ ВМЕСТО AutoAwesome
+            if (useEnhancer) Icon(Icons.Default.Star, null, tint = Color.Yellow, modifier = Modifier.padding(start = 4.dp))
         }
 
         Spacer(Modifier.height(8.dp))
