@@ -1,5 +1,8 @@
 package com.example.aihub
 
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
+import coil.ImageLoader
 import android.content.Context
 import android.os.Bundle
 import android.widget.Toast
@@ -273,11 +276,20 @@ fun IMGTab() {
     var imageUrl by remember { mutableStateOf<String?>(null) }
     var isEnhancing by remember { mutableStateOf(false) }
     var useEnhancer by remember { mutableStateOf(true) }
-    
-    // Переменная для хранения ошибки, если она случится
     var lastError by remember { mutableStateOf<String?>(null) }
-    
     val scope = rememberCoroutineScope()
+
+    // --- FIX: СОЗДАЕМ ЗАГРУЗЧИК С "ТЕРПЕНИЕМ" (Ждет 100 секунд) ---
+    val customImageLoader = remember {
+        ImageLoader.Builder(context)
+            .okHttpClient {
+                OkHttpClient.Builder()
+                    .connectTimeout(100, TimeUnit.SECONDS) // Ждем подключения
+                    .readTimeout(100, TimeUnit.SECONDS)    // Ждем картинку
+                    .build()
+            }
+            .build()
+    }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("AI Image Generator", style = MaterialTheme.typography.headlineMedium)
@@ -307,9 +319,8 @@ fun IMGTab() {
                     return@Button
                 }
 
-                // Сбрасываем ошибку перед новой генерацией
                 lastError = null 
-                imageUrl = null // Скрываем старую картинку
+                imageUrl = null
 
                 scope.launch {
                     var finalPrompt = prompt
@@ -317,11 +328,10 @@ fun IMGTab() {
                     
                     if (useEnhancer && prompt.isNotBlank()) {
                         try {
-                            // Просим Mistral быть кратким (Short), чтобы URL не был слишком длинным
                             val enhanceRequest = ChatRequest(
                                 model = "mistral-tiny",
                                 messages = listOf(
-                                    Message("system", "Rewrite as detailed Stable Diffusion prompt. Keep it under 40 words. No intro."),
+                                    Message("system", "Rewrite as detailed Stable Diffusion prompt. Keep it under 40 words."),
                                     Message("user", prompt)
                                 )
                             )
@@ -332,17 +342,10 @@ fun IMGTab() {
                         }
                     }
 
-                    // --- FIX: САМЫЙ НАДЕЖНЫЙ СПОСОБ ---
-                    // 1. Добавляем рандом прямо в текст (нейронка его проигнорирует, а картинка изменится)
+                    // Генерация ссылки
+                    val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
                     val randomSeed = (1..9999).random()
-                    val promptWithSeed = "$finalPrompt $randomSeed"
-                    
-                    // 2. Кодируем всё целиком
-                    val encoded = URLEncoder.encode(promptWithSeed, "UTF-8")
-                    
-                    // 3. Формируем чистую ссылку без параметров запроса
-                    imageUrl = "https://image.pollinations.ai/prompt/$encoded"
-                    
+                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&seed=$randomSeed"
                     isEnhancing = false
                 }
             },
@@ -365,12 +368,13 @@ fun IMGTab() {
                 colors = CardDefaults.cardColors(containerColor = Color.Black)
             ) {
                 SubcomposeAsyncImage(
+                    // --- ВАЖНО: ПЕРЕДАЕМ НАШ "ТЕРПЕЛИВЫЙ" ЗАГРУЗЧИК ---
+                    imageLoader = customImageLoader, 
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
                         .crossfade(true)
                         .listener(
                             onError = { _, result ->
-                                // Если ошибка — сохраняем текст ошибки
                                 lastError = result.throwable.message ?: "Unknown Error"
                             }
                         )
@@ -380,23 +384,24 @@ fun IMGTab() {
                     contentScale = ContentScale.Fit,
                     loading = {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator()
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator()
+                                Spacer(Modifier.height(8.dp))
+                                Text("Generating...", color = Color.White)
+                            }
                         }
                     },
                     error = {
                         Box(
-                            Modifier
-                                .fillMaxSize()
-                                .clickable { 
-                                    // При клике на ошибку показываем причину
-                                    Toast.makeText(context, "Error: $lastError", Toast.LENGTH_LONG).show()
-                                }, 
+                            Modifier.fillMaxSize().clickable { 
+                                Toast.makeText(context, "Error: $lastError", Toast.LENGTH_LONG).show()
+                            }, 
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("⚠️", fontSize = 48.sp)
                                 Text("Load Failed", color = Color.Red)
-                                Text("(Tap for details)", color = Color.Gray, fontSize = 12.sp)
+                                Text("Tap for details", color = Color.Gray, fontSize = 12.sp)
                             }
                         }
                     }
@@ -407,6 +412,7 @@ fun IMGTab() {
         }
     }
 }
+
 
 
 
