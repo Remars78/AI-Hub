@@ -273,6 +273,10 @@ fun IMGTab() {
     var imageUrl by remember { mutableStateOf<String?>(null) }
     var isEnhancing by remember { mutableStateOf(false) }
     var useEnhancer by remember { mutableStateOf(true) }
+    
+    // Переменная для хранения ошибки, если она случится
+    var lastError by remember { mutableStateOf<String?>(null) }
+    
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -303,16 +307,21 @@ fun IMGTab() {
                     return@Button
                 }
 
+                // Сбрасываем ошибку перед новой генерацией
+                lastError = null 
+                imageUrl = null // Скрываем старую картинку
+
                 scope.launch {
                     var finalPrompt = prompt
                     isEnhancing = true
                     
                     if (useEnhancer && prompt.isNotBlank()) {
                         try {
+                            // Просим Mistral быть кратким (Short), чтобы URL не был слишком длинным
                             val enhanceRequest = ChatRequest(
                                 model = "mistral-tiny",
                                 messages = listOf(
-                                    Message("system", "Rewrite as detailed Stable Diffusion prompt, no intro."),
+                                    Message("system", "Rewrite as detailed Stable Diffusion prompt. Keep it under 40 words. No intro."),
                                     Message("user", prompt)
                                 )
                             )
@@ -323,11 +332,17 @@ fun IMGTab() {
                         }
                     }
 
-                    // --- URL GENERATION ---
-                    val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
-                    val randomSeed = (1..99999).random()
-                    // Убрали ?seed, вставили рандом в конец пути, чтобы сбить кэш наверняка
-                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&seed=$randomSeed"
+                    // --- FIX: САМЫЙ НАДЕЖНЫЙ СПОСОБ ---
+                    // 1. Добавляем рандом прямо в текст (нейронка его проигнорирует, а картинка изменится)
+                    val randomSeed = (1..9999).random()
+                    val promptWithSeed = "$finalPrompt $randomSeed"
+                    
+                    // 2. Кодируем всё целиком
+                    val encoded = URLEncoder.encode(promptWithSeed, "UTF-8")
+                    
+                    // 3. Формируем чистую ссылку без параметров запроса
+                    imageUrl = "https://image.pollinations.ai/prompt/$encoded"
+                    
                     isEnhancing = false
                 }
             },
@@ -336,7 +351,7 @@ fun IMGTab() {
         ) {
             if (isEnhancing) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                Text(" Optimizing...")
+                Text(" Working...")
             } else {
                 Text("Generate 🎨")
             }
@@ -349,25 +364,39 @@ fun IMGTab() {
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 colors = CardDefaults.cardColors(containerColor = Color.Black)
             ) {
-                // Продвинутый загрузчик
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
                         .crossfade(true)
+                        .listener(
+                            onError = { _, result ->
+                                // Если ошибка — сохраняем текст ошибки
+                                lastError = result.throwable.message ?: "Unknown Error"
+                            }
+                        )
                         .build(),
                     contentDescription = "Generated Art",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit, // Картинка всегда влезает
+                    contentScale = ContentScale.Fit,
                     loading = {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             CircularProgressIndicator()
                         }
                     },
                     error = {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .clickable { 
+                                    // При клике на ошибку показываем причину
+                                    Toast.makeText(context, "Error: $lastError", Toast.LENGTH_LONG).show()
+                                }, 
+                            contentAlignment = Alignment.Center
+                        ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("⚠️", fontSize = 48.sp)
                                 Text("Load Failed", color = Color.Red)
+                                Text("(Tap for details)", color = Color.Gray, fontSize = 12.sp)
                             }
                         }
                     }
@@ -378,6 +407,8 @@ fun IMGTab() {
         }
     }
 }
+
+
 
 // --- TAB 3: SETTINGS ---
 @Composable
