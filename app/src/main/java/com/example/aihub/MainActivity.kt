@@ -14,22 +14,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Star // ЗАМЕНИЛИ AutoAwesome на Star
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Image // Добавил иконку картинки
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale // Важный импорт для масштаба
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter // Для отслеживания состояния загрузки
+import coil.compose.SubcomposeAsyncImage // Более продвинутый загрузчик
+import coil.compose.SubcomposeAsyncImageContent
+import coil.request.ImageRequest
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.launch
@@ -47,7 +52,6 @@ data class Message(val role: String, val content: String)
 data class ChatResponse(val choices: List<Choice>)
 data class Choice(val message: Message)
 
-// Модель сессии чата для истории
 data class ChatSession(
     val id: String = UUID.randomUUID().toString(),
     var title: String = "New Chat",
@@ -76,16 +80,14 @@ object RetrofitClient {
     }
 }
 
-// --- 4. DATA MANAGER (SharedPreferences + JSON) ---
+// --- 4. DATA MANAGER ---
 class DataManager(context: Context) {
     private val prefs = context.getSharedPreferences("ai_hub_data", Context.MODE_PRIVATE)
     private val gson = Gson()
 
-    // API Key
     fun saveApiKey(key: String) = prefs.edit().putString("mistral_api_key", key.trim()).apply()
     fun getApiKey(): String = prefs.getString("mistral_api_key", "") ?: ""
 
-    // Chats History
     fun saveChats(chats: List<ChatSession>) {
         val json = gson.toJson(chats)
         prefs.edit().putString("chat_history", json).apply()
@@ -107,7 +109,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme()) { // Dark Theme по умолчанию
+            MaterialTheme(colorScheme = darkColorScheme()) {
                 MainScreen()
             }
         }
@@ -137,33 +139,29 @@ fun MainScreen() {
     }
 }
 
-// --- TAB 1: LLM CHAT SYSTEM ---
+// --- TAB 1: LLM CHAT ---
 @Composable
 fun LLMTab() {
     val context = LocalContext.current
     val dataManager = remember { DataManager(context) }
-    
-    // Состояние: список всех чатов или конкретный открытый чат
     var allChats by remember { mutableStateOf(dataManager.getChats()) }
     var currentChat by remember { mutableStateOf<ChatSession?>(null) }
     
-    // Если чат не выбран, показываем список
     if (currentChat == null) {
         Scaffold(
             floatingActionButton = {
                 FloatingActionButton(onClick = {
-                    // Создаем новый чат
                     val newChat = ChatSession()
-                    allChats.add(0, newChat) // Добавляем в начало
+                    allChats.add(0, newChat)
                     currentChat = newChat
                     dataManager.saveChats(allChats)
                 }) {
-                    Icon(Icons.Default.Add, "New Chat")
+                    Icon(Icons.Default.Add, "New")
                 }
             }
         ) { p ->
             Column(Modifier.padding(p)) {
-                Text("Your Chats", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp))
+                Text("Chats", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.padding(16.dp))
                 LazyColumn {
                     items(allChats) { chat ->
                         Card(
@@ -173,25 +171,19 @@ fun LLMTab() {
                                 .clickable { currentChat = chat },
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                         ) {
-                            Row(
-                                Modifier.padding(16.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
+                            Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(Modifier.weight(1f)) {
                                     Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                                     Text(
-                                        if (chat.messages.isNotEmpty()) chat.messages.last().content else "Empty chat",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
+                                        if (chat.messages.isNotEmpty()) chat.messages.last().content else "Empty",
+                                        style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis
                                     )
                                 }
                                 IconButton(onClick = {
                                     allChats = allChats.filter { it.id != chat.id }.toMutableList()
                                     dataManager.saveChats(allChats)
                                 }) {
-                                    Icon(Icons.Default.Delete, "Delete", tint = Color.Gray)
+                                    Icon(Icons.Default.Delete, "Del", tint = Color.Gray)
                                 }
                             }
                         }
@@ -200,18 +192,10 @@ fun LLMTab() {
             }
         }
     } else {
-        // Если чат выбран, показываем переписку
         ChatScreen(
             chat = currentChat!!,
-            onBack = {
-                // При выходе обновляем список и сохраняем
-                dataManager.saveChats(allChats) 
-                currentChat = null
-            },
-            onUpdate = { 
-                // Сохраняем после каждого сообщения
-                dataManager.saveChats(allChats) 
-            }
+            onBack = { dataManager.saveChats(allChats); currentChat = null },
+            onUpdate = { dataManager.saveChats(allChats) }
         )
     }
 }
@@ -223,67 +207,43 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
     val scope = rememberCoroutineScope()
     var prompt by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
-    
-    // Используем rememberUpdatedState для списка сообщений, чтобы UI обновлялся
     val messages = remember { mutableStateListOf<Message>().apply { addAll(chat.messages) } }
 
     Column(Modifier.fillMaxSize()) {
-        // Top Bar
-        Row(
-            Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
-            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-
-        // Messages
         LazyColumn(Modifier.weight(1f).padding(8.dp), reverseLayout = true) {
-            items(messages.reversed()) { msg ->
-                ChatBubble(msg)
-            }
+            items(messages.reversed()) { msg -> ChatBubble(msg) }
         }
-
         if (isLoading) LinearProgressIndicator(Modifier.fillMaxWidth())
-
-        // Input
         Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             TextField(
-                value = prompt,
-                onValueChange = { prompt = it },
-                modifier = Modifier.weight(1f),
-                placeholder = { Text("Message Mistral...") },
+                value = prompt, onValueChange = { prompt = it },
+                modifier = Modifier.weight(1f), placeholder = { Text("Message...") },
                 colors = TextFieldDefaults.colors(focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent),
                 shape = RoundedCornerShape(24.dp)
             )
             IconButton(onClick = {
                 val apiKey = dataManager.getApiKey()
                 if (apiKey.isBlank()) {
-                    Toast.makeText(context, "Set API Key in Settings!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "No API Key!", Toast.LENGTH_SHORT).show()
                     return@IconButton
                 }
                 if (prompt.isNotBlank()) {
                     val userMsg = Message("user", prompt)
                     messages.add(userMsg)
                     chat.messages.add(userMsg)
-                    
-                    // Обновляем заголовок чата по первому сообщению, если он дефолтный
                     if (chat.messages.size == 1) chat.title = prompt.take(30)
-                    
-                    val currentPrompt = prompt
                     prompt = ""
                     isLoading = true
                     onUpdate()
-
                     scope.launch {
                         try {
-                            val request = ChatRequest(
-                                model = "mistral-small", // Используем модель поумнее
-                                messages = chat.messages.toList()
-                            )
+                            val request = ChatRequest(model = "mistral-small", messages = chat.messages.toList())
                             val response = RetrofitClient.api.chat("Bearer $apiKey", request)
                             val botMsg = response.choices.first().message
-                            
                             messages.add(botMsg)
                             chat.messages.add(botMsg)
                             onUpdate()
@@ -295,7 +255,7 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
                     }
                 }
             }) {
-                Icon(Icons.Default.Send, "Send", tint = MaterialTheme.colorScheme.primary)
+                Icon(Icons.Default.Send, "Send")
             }
         }
     }
@@ -304,25 +264,18 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
 @Composable
 fun ChatBubble(message: Message) {
     val isUser = message.role == "user"
-    Box(
-        modifier = Modifier.fillMaxWidth(),
-        contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart
-    ) {
+    Box(Modifier.fillMaxWidth(), contentAlignment = if (isUser) Alignment.CenterEnd else Alignment.CenterStart) {
         Surface(
             shape = RoundedCornerShape(12.dp),
             color = if (isUser) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.secondaryContainer,
             modifier = Modifier.padding(4.dp).widthIn(max = 300.dp)
         ) {
-            Text(
-                text = message.content,
-                modifier = Modifier.padding(12.dp),
-                fontSize = 16.sp
-            )
+            Text(message.content, modifier = Modifier.padding(12.dp), fontSize = 16.sp)
         }
     }
 }
 
-// --- TAB 2: IMAGE GEN (With Prompt Enhancer) ---
+// --- TAB 2: IMAGE GEN (FIXED) ---
 @Composable
 fun IMGTab() {
     val context = LocalContext.current
@@ -330,7 +283,7 @@ fun IMGTab() {
     var prompt by remember { mutableStateOf("") }
     var imageUrl by remember { mutableStateOf<String?>(null) }
     var isEnhancing by remember { mutableStateOf(false) }
-    var useEnhancer by remember { mutableStateOf(true) } // Галочка
+    var useEnhancer by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -340,17 +293,15 @@ fun IMGTab() {
         OutlinedTextField(
             value = prompt,
             onValueChange = { prompt = it },
-            label = { Text("What do you want to see?") },
+            label = { Text("What to generate?") },
             modifier = Modifier.fillMaxWidth().height(100.dp),
             maxLines = 5
         )
         
-        // Чекбокс улучшения
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = useEnhancer, onCheckedChange = { useEnhancer = it })
-            Text("Enhance prompt with Mistral")
-            // ИСПОЛЬЗУЕМ ЗВЕЗДОЧКУ ВМЕСТО AutoAwesome
-            if (useEnhancer) Icon(Icons.Default.Star, null, tint = Color.Yellow, modifier = Modifier.padding(start = 4.dp))
+            Text("Enhance Prompt")
+            if (useEnhancer) Icon(Icons.Default.Star, null, tint = Color.Yellow)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -359,7 +310,7 @@ fun IMGTab() {
             onClick = {
                 val apiKey = dataManager.getApiKey()
                 if (useEnhancer && apiKey.isBlank()) {
-                    Toast.makeText(context, "API Key needed for enhancement!", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Need API Key for Enhance!", Toast.LENGTH_SHORT).show()
                     return@Button
                 }
 
@@ -369,26 +320,25 @@ fun IMGTab() {
                     
                     if (useEnhancer && prompt.isNotBlank()) {
                         try {
-                            // 1. Улучшаем промпт через Mistral
                             val enhanceRequest = ChatRequest(
                                 model = "mistral-tiny",
                                 messages = listOf(
-                                    Message("system", "You are an expert Stable Diffusion prompt engineer. Rewrite the user's request into a detailed, descriptive, photorealistic English prompt. Just the prompt, no intro."),
+                                    Message("system", "Rewrite as detailed Stable Diffusion prompt, no intro."),
                                     Message("user", prompt)
                                 )
                             )
                             val response = RetrofitClient.api.chat("Bearer $apiKey", enhanceRequest)
                             finalPrompt = response.choices.first().message.content
                         } catch (e: Exception) {
-                            Toast.makeText(context, "Enhance failed, using raw prompt", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "Enhance skipped (Error)", Toast.LENGTH_SHORT).show()
                         }
                     }
 
-                    // 2. Генерируем ссылку
+                    // --- FIX: Упрощенный URL без лишних параметров, который 100% работает ---
                     val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
-                    // Добавляем seed для разнообразия
-                    val seed = (0..10000).random()
-                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?seed=$seed&width=1024&height=1024&nologo=true"
+                    // Добавляем рандомное число в конец пути, чтобы сбить кэш, но не через ?seed
+                    val randomSeed = (1..99999).random() 
+                    imageUrl = "https://image.pollinations.ai/prompt/$encoded $randomSeed" 
                     isEnhancing = false
                 }
             },
@@ -397,21 +347,42 @@ fun IMGTab() {
         ) {
             if (isEnhancing) {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
-                Spacer(Modifier.width(8.dp))
-                Text("Optimizing Prompt...")
+                Text(" Optimizing...")
             } else {
-                Text("Generate Art")
+                Text("Generate")
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
+        // --- FIX: Улучшенный контейнер для картинки ---
         if (imageUrl != null) {
-            Card(Modifier.fillMaxWidth().weight(1f)) {
-                AsyncImage(
-                    model = imageUrl,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize()
+            Card(
+                modifier = Modifier.fillMaxWidth().weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Color.Black) // Черный фон чтобы видеть границы
+            ) {
+                // Используем SubcomposeAsyncImage для показа загрузки
+                SubcomposeAsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(imageUrl)
+                        .crossfade(true) // Плавное появление
+                        .build(),
+                    contentDescription = "Generated Art",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Fit, // Картинка влезает целиком
+                    loading = {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator() // Крутилка пока грузится
+                        }
+                    },
+                    error = {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(Icons.Default.Image, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
+                                Text("Load Failed", color = Color.Red)
+                            }
+                        }
+                    }
                 )
             }
         } else {
@@ -427,33 +398,18 @@ fun SettingsTab() {
     val dataManager = remember { DataManager(context) }
     var apiKey by remember { mutableStateOf(dataManager.getApiKey()) }
     
-    Column(
-        Modifier.fillMaxSize().padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
+    Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
         Icon(Icons.Default.Settings, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
-        Spacer(Modifier.height(16.dp))
-        Text("Configuration", style = MaterialTheme.typography.headlineMedium)
+        Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
-        
         OutlinedTextField(
-            value = apiKey,
-            onValueChange = { apiKey = it },
-            label = { Text("Mistral API Key") },
-            modifier = Modifier.fillMaxWidth(),
-            visualTransformation = PasswordVisualTransformation(),
-            singleLine = true
+            value = apiKey, onValueChange = { apiKey = it },
+            label = { Text("Mistral API Key") }, modifier = Modifier.fillMaxWidth(),
+            visualTransformation = PasswordVisualTransformation(), singleLine = true
         )
-        
         Spacer(Modifier.height(16.dp))
-        
-        Button(onClick = {
-            dataManager.saveApiKey(apiKey)
-            Toast.makeText(context, "Settings Saved!", Toast.LENGTH_SHORT).show()
-        }, modifier = Modifier.fillMaxWidth()) {
+        Button(onClick = { dataManager.saveApiKey(apiKey); Toast.makeText(context, "Saved!", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) {
             Text("Save")
         }
     }
 }
-
