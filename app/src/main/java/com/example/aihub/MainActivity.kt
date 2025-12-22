@@ -10,6 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -18,6 +19,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -78,23 +80,29 @@ class DataManager(context: Context) {
     private val prefs = context.getSharedPreferences("ai_hub_data", Context.MODE_PRIVATE)
     private val gson = Gson()
 
+    // API Key
     fun saveApiKey(key: String) = prefs.edit().putString("mistral_api_key", key.trim()).apply()
     fun getApiKey(): String = prefs.getString("mistral_api_key", "") ?: ""
 
+    // Chat History
     fun saveChats(chats: List<ChatSession>) {
         val json = gson.toJson(chats)
         prefs.edit().putString("chat_history", json).apply()
     }
-
     fun getChats(): MutableList<ChatSession> {
         val json = prefs.getString("chat_history", null) ?: return mutableListOf()
         val type = object : TypeToken<MutableList<ChatSession>>() {}.type
-        return try {
-            gson.fromJson(json, type)
-        } catch (e: Exception) {
-            mutableListOf()
-        }
+        return try { gson.fromJson(json, type) } catch (e: Exception) { mutableListOf() }
     }
+
+    // --- NEW: MODEL SETTINGS ---
+    // Chat Model: "small" or "large"
+    fun saveChatModel(model: String) = prefs.edit().putString("chat_model_pref", model).apply()
+    fun getChatModel(): String = prefs.getString("chat_model_pref", "mistral-small-latest") ?: "mistral-small-latest"
+
+    // Image Model: "default" or "flux"
+    fun saveImgModel(model: String) = prefs.edit().putString("img_model_pref", model).apply()
+    fun getImgModel(): String = prefs.getString("img_model_pref", "default") ?: "default"
 }
 
 // --- 5. MAIN ACTIVITY ---
@@ -205,7 +213,12 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Text("⬅️", fontSize = 24.sp) }
-            Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column {
+                Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // Показываем какая модель используется
+                val modelName = if(dataManager.getChatModel().contains("large")) "Large Model" else "Small Model"
+                Text(modelName, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+            }
         }
         LazyColumn(Modifier.weight(1f).padding(8.dp), reverseLayout = true) {
             items(messages.reversed()) { msg -> ChatBubble(msg) }
@@ -234,7 +247,9 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
                     onUpdate()
                     scope.launch {
                         try {
-                            val request = ChatRequest(model = "mistral-small", messages = chat.messages.toList())
+                            // --- USE SELECTED MODEL ---
+                            val selectedModel = dataManager.getChatModel()
+                            val request = ChatRequest(model = selectedModel, messages = chat.messages.toList())
                             val response = RetrofitClient.api.chat("Bearer $apiKey", request)
                             val botMsg = response.choices.first().message
                             messages.add(botMsg)
@@ -268,7 +283,7 @@ fun ChatBubble(message: Message) {
     }
 }
 
-// --- TAB 2: IMAGE GEN (FIXED NETWORK POLICY) ---
+// --- TAB 2: IMAGE GEN ---
 @Composable
 fun IMGTab() {
     val context = LocalContext.current
@@ -280,7 +295,6 @@ fun IMGTab() {
     var lastError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    // Настраиваем загрузчик: 60 сек ожидание
     val customImageLoader = remember {
         ImageLoader.Builder(context)
             .okHttpClient {
@@ -293,7 +307,15 @@ fun IMGTab() {
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("AI Image Generator", style = MaterialTheme.typography.headlineMedium)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Image Generator", style = MaterialTheme.typography.headlineMedium)
+            Spacer(Modifier.width(8.dp))
+            // Индикатор модели
+            val currentModel = dataManager.getImgModel()
+            Badge(containerColor = if(currentModel == "flux") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary) {
+                Text(if(currentModel == "flux") "FLUX (HQ)" else "TURBO")
+            }
+        }
         Spacer(Modifier.height(16.dp))
 
         OutlinedTextField(
@@ -346,7 +368,11 @@ fun IMGTab() {
                     val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
                     val uniqueId = "${System.currentTimeMillis()}-${(1..999).random()}"
                     
-                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&cachebuster=$uniqueId"
+                    // --- SELECT MODEL LOGIC ---
+                    val selectedImgModel = dataManager.getImgModel()
+                    val modelParam = if (selectedImgModel == "flux") "&model=flux" else ""
+                    
+                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&cachebuster=$uniqueId$modelParam"
                     
                     isEnhancing = false
                 }
@@ -373,18 +399,14 @@ fun IMGTab() {
                     imageLoader = customImageLoader,
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
-                        .memoryCachePolicy(CachePolicy.DISABLED) // Отключаем память
-                        .diskCachePolicy(CachePolicy.DISABLED)   // Отключаем диск
-                        .networkCachePolicy(CachePolicy.ENABLED) // СЕТЬ ВКЛЮЧЕНА (важно!)
-                        .addHeader("Connection", "close")        // Сбрасываем "зависшее" соединение
+                        .memoryCachePolicy(CachePolicy.DISABLED)
+                        .diskCachePolicy(CachePolicy.DISABLED)
+                        .networkCachePolicy(CachePolicy.ENABLED)
+                        .addHeader("Connection", "close")
                         .crossfade(true)
-                        .listener(
-                            onError = { _, result ->
-                                lastError = result.throwable.message ?: "Unknown Error"
-                            }
-                        )
+                        .listener(onError = { _, result -> lastError = result.throwable.message ?: "Unknown Error" })
                         .build(),
-                    contentDescription = "Generated Art",
+                    contentDescription = "Art",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit,
                     loading = {
@@ -398,15 +420,12 @@ fun IMGTab() {
                     },
                     error = {
                         Box(
-                            Modifier.fillMaxSize().clickable { 
-                                Toast.makeText(context, "Error: $lastError", Toast.LENGTH_LONG).show()
-                            }, 
+                            Modifier.fillMaxSize().clickable { Toast.makeText(context, "Error: $lastError", Toast.LENGTH_LONG).show() }, 
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text("⚠️", fontSize = 48.sp)
-                                Text("Load Failed", color = Color.Red)
-                                Text("Tap for details", color = Color.Gray, fontSize = 12.sp)
+                                Text("Failed", color = Color.Red)
                             }
                         }
                     }
@@ -418,25 +437,36 @@ fun IMGTab() {
     }
 }
 
-// --- TAB 3: SETTINGS ---
+// --- TAB 3: SETTINGS (UPDATED WITH MODEL SELECTORS) ---
 @Composable
 fun SettingsTab() {
     val context = LocalContext.current
     val dataManager = remember { DataManager(context) }
     var apiKey by remember { mutableStateOf(dataManager.getApiKey()) }
     
-    Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text("⚙️", fontSize = 64.sp)
+    // States for Selectors
+    var selectedChatModel by remember { mutableStateOf(dataManager.getChatModel()) }
+    var selectedImgModel by remember { mutableStateOf(dataManager.getImgModel()) }
+    
+    Column(Modifier.fillMaxSize().padding(16.dp)) {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
+        
+        // --- API KEY ---
         OutlinedTextField(
             value = apiKey, onValueChange = { apiKey = it },
             label = { Text("Mistral API Key") }, modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(), singleLine = true
         )
-        Spacer(Modifier.height(16.dp))
-        Button(onClick = { dataManager.saveApiKey(apiKey); Toast.makeText(context, "Saved!", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) {
-            Text("Save 💾")
-        }
-    }
-}
+        
+        Divider(Modifier.padding(vertical = 16.dp))
+        
+        // --- CHAT MODEL SELECTOR ---
+        Text("Chat Model", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = selectedChatModel == "mistral-small-latest",
+                    onClick = { selectedChatModel = "mistral-small-latest" }
+                )
+      
