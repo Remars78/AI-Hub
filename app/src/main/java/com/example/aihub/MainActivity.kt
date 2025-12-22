@@ -11,29 +11,18 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Image // Добавил иконку картинки
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale // Важный импорт для масштаба
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImagePainter // Для отслеживания состояния загрузки
-import coil.compose.SubcomposeAsyncImage // Более продвинутый загрузчик
-import coil.compose.SubcomposeAsyncImageContent
+import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -123,9 +112,9 @@ fun MainScreen() {
     Scaffold(
         bottomBar = {
             NavigationBar {
-                NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Text("Chat") }, label = { Text("LLM") })
-                NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Text("Img") }, label = { Text("Gen") })
-                NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Icon(Icons.Default.Settings, "Set") }, label = { Text("Set") })
+                NavigationBarItem(selected = selectedTab == 0, onClick = { selectedTab = 0 }, icon = { Text("💬", fontSize = 20.sp) }, label = { Text("Chat") })
+                NavigationBarItem(selected = selectedTab == 1, onClick = { selectedTab = 1 }, icon = { Text("🎨", fontSize = 20.sp) }, label = { Text("Gen") })
+                NavigationBarItem(selected = selectedTab == 2, onClick = { selectedTab = 2 }, icon = { Text("⚙️", fontSize = 20.sp) }, label = { Text("Set") })
             }
         }
     ) { padding ->
@@ -156,7 +145,7 @@ fun LLMTab() {
                     currentChat = newChat
                     dataManager.saveChats(allChats)
                 }) {
-                    Icon(Icons.Default.Add, "New")
+                    Text("➕", fontSize = 24.sp)
                 }
             }
         ) { p ->
@@ -183,7 +172,7 @@ fun LLMTab() {
                                     allChats = allChats.filter { it.id != chat.id }.toMutableList()
                                     dataManager.saveChats(allChats)
                                 }) {
-                                    Icon(Icons.Default.Delete, "Del", tint = Color.Gray)
+                                    Text("🗑️")
                                 }
                             }
                         }
@@ -211,7 +200,7 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, "Back") }
+            IconButton(onClick = onBack) { Text("⬅️", fontSize = 24.sp) }
             Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         LazyColumn(Modifier.weight(1f).padding(8.dp), reverseLayout = true) {
@@ -255,7 +244,7 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
                     }
                 }
             }) {
-                Icon(Icons.Default.Send, "Send")
+                Text("📤", fontSize = 24.sp)
             }
         }
     }
@@ -275,7 +264,7 @@ fun ChatBubble(message: Message) {
     }
 }
 
-// --- TAB 2: IMAGE GEN (FIXED) ---
+// --- TAB 2: IMAGE GEN (FIXED & EMOJI) ---
 @Composable
 fun IMGTab() {
     val context = LocalContext.current
@@ -301,7 +290,7 @@ fun IMGTab() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Checkbox(checked = useEnhancer, onCheckedChange = { useEnhancer = it })
             Text("Enhance Prompt")
-            if (useEnhancer) Icon(Icons.Default.Star, null, tint = Color.Yellow)
+            if (useEnhancer) Text(" ✨", fontSize = 18.sp)
         }
 
         Spacer(Modifier.height(8.dp))
@@ -334,11 +323,11 @@ fun IMGTab() {
                         }
                     }
 
-                    // --- FIX: Упрощенный URL без лишних параметров, который 100% работает ---
+                    // --- URL GENERATION ---
                     val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
-                    // Добавляем рандомное число в конец пути, чтобы сбить кэш, но не через ?seed
-                    val randomSeed = (1..99999).random() 
-                    imageUrl = "https://image.pollinations.ai/prompt/$encoded $randomSeed" 
+                    val randomSeed = (1..99999).random()
+                    // Убрали ?seed, вставили рандом в конец пути, чтобы сбить кэш наверняка
+                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&seed=$randomSeed"
                     isEnhancing = false
                 }
             },
@@ -349,36 +338,35 @@ fun IMGTab() {
                 CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
                 Text(" Optimizing...")
             } else {
-                Text("Generate")
+                Text("Generate 🎨")
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // --- FIX: Улучшенный контейнер для картинки ---
         if (imageUrl != null) {
             Card(
                 modifier = Modifier.fillMaxWidth().weight(1f),
-                colors = CardDefaults.cardColors(containerColor = Color.Black) // Черный фон чтобы видеть границы
+                colors = CardDefaults.cardColors(containerColor = Color.Black)
             ) {
-                // Используем SubcomposeAsyncImage для показа загрузки
+                // Продвинутый загрузчик
                 SubcomposeAsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
-                        .crossfade(true) // Плавное появление
+                        .crossfade(true)
                         .build(),
                     contentDescription = "Generated Art",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit, // Картинка влезает целиком
+                    contentScale = ContentScale.Fit, // Картинка всегда влезает
                     loading = {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            CircularProgressIndicator() // Крутилка пока грузится
+                            CircularProgressIndicator()
                         }
                     },
                     error = {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.Image, "Error", tint = Color.Red, modifier = Modifier.size(48.dp))
+                                Text("⚠️", fontSize = 48.sp)
                                 Text("Load Failed", color = Color.Red)
                             }
                         }
@@ -399,7 +387,7 @@ fun SettingsTab() {
     var apiKey by remember { mutableStateOf(dataManager.getApiKey()) }
     
     Column(Modifier.fillMaxSize().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Icon(Icons.Default.Settings, null, modifier = Modifier.size(64.dp), tint = MaterialTheme.colorScheme.primary)
+        Text("⚙️", fontSize = 64.sp)
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(24.dp))
         OutlinedTextField(
@@ -409,7 +397,8 @@ fun SettingsTab() {
         )
         Spacer(Modifier.height(16.dp))
         Button(onClick = { dataManager.saveApiKey(apiKey); Toast.makeText(context, "Saved!", Toast.LENGTH_SHORT).show() }, modifier = Modifier.fillMaxWidth()) {
-            Text("Save")
+            Text("Save 💾")
         }
     }
 }
+
