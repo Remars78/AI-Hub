@@ -95,12 +95,10 @@ class DataManager(context: Context) {
         return try { gson.fromJson(json, type) } catch (e: Exception) { mutableListOf() }
     }
 
-    // --- NEW: MODEL SETTINGS ---
-    // Chat Model: "small" or "large"
+    // Settings
     fun saveChatModel(model: String) = prefs.edit().putString("chat_model_pref", model).apply()
     fun getChatModel(): String = prefs.getString("chat_model_pref", "mistral-small-latest") ?: "mistral-small-latest"
 
-    // Image Model: "default" or "flux"
     fun saveImgModel(model: String) = prefs.edit().putString("img_model_pref", model).apply()
     fun getImgModel(): String = prefs.getString("img_model_pref", "default") ?: "default"
 }
@@ -215,7 +213,6 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
             IconButton(onClick = onBack) { Text("⬅️", fontSize = 24.sp) }
             Column {
                 Text(chat.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                // Показываем какая модель используется
                 val modelName = if(dataManager.getChatModel().contains("large")) "Large Model" else "Small Model"
                 Text(modelName, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
             }
@@ -247,7 +244,6 @@ fun ChatScreen(chat: ChatSession, onBack: () -> Unit, onUpdate: () -> Unit) {
                     onUpdate()
                     scope.launch {
                         try {
-                            // --- USE SELECTED MODEL ---
                             val selectedModel = dataManager.getChatModel()
                             val request = ChatRequest(model = selectedModel, messages = chat.messages.toList())
                             val response = RetrofitClient.api.chat("Bearer $apiKey", request)
@@ -310,10 +306,17 @@ fun IMGTab() {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("Image Generator", style = MaterialTheme.typography.headlineMedium)
             Spacer(Modifier.width(8.dp))
-            // Индикатор модели
             val currentModel = dataManager.getImgModel()
-            Badge(containerColor = if(currentModel == "flux") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary) {
-                Text(if(currentModel == "flux") "FLUX (HQ)" else "TURBO")
+            // Используем Surface вместо Badge (безопаснее для сборки)
+            Surface(
+                color = if(currentModel == "flux") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary,
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = if(currentModel == "flux") " FLUX " else " TURBO ",
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall
+                )
             }
         }
         Spacer(Modifier.height(16.dp))
@@ -368,7 +371,6 @@ fun IMGTab() {
                     val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
                     val uniqueId = "${System.currentTimeMillis()}-${(1..999).random()}"
                     
-                    // --- SELECT MODEL LOGIC ---
                     val selectedImgModel = dataManager.getImgModel()
                     val modelParam = if (selectedImgModel == "flux") "&model=flux" else ""
                     
@@ -437,14 +439,13 @@ fun IMGTab() {
     }
 }
 
-// --- TAB 3: SETTINGS (UPDATED WITH MODEL SELECTORS) ---
+// --- TAB 3: SETTINGS ---
 @Composable
 fun SettingsTab() {
     val context = LocalContext.current
     val dataManager = remember { DataManager(context) }
     var apiKey by remember { mutableStateOf(dataManager.getApiKey()) }
     
-    // States for Selectors
     var selectedChatModel by remember { mutableStateOf(dataManager.getChatModel()) }
     var selectedImgModel by remember { mutableStateOf(dataManager.getImgModel()) }
     
@@ -452,16 +453,16 @@ fun SettingsTab() {
         Text("Settings", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
         
-        // --- API KEY ---
         OutlinedTextField(
             value = apiKey, onValueChange = { apiKey = it },
             label = { Text("Mistral API Key") }, modifier = Modifier.fillMaxWidth(),
             visualTransformation = PasswordVisualTransformation(), singleLine = true
         )
         
-        Divider(Modifier.padding(vertical = 16.dp))
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.Gray)) // Divider replacement
+        Spacer(Modifier.height(16.dp))
         
-        // --- CHAT MODEL SELECTOR ---
         Text("Chat Model", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -469,4 +470,49 @@ fun SettingsTab() {
                     selected = selectedChatModel == "mistral-small-latest",
                     onClick = { selectedChatModel = "mistral-small-latest" }
                 )
-      
+                Text("Small (Fast)")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = selectedChatModel == "mistral-large-latest",
+                    onClick = { selectedChatModel = "mistral-large-latest" }
+                )
+                Text("Large (Smart)")
+            }
+        }
+        
+        Spacer(Modifier.height(16.dp))
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.Gray))
+        Spacer(Modifier.height(16.dp))
+
+        Text("Image Model", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+        Text("Flux is better but slower.", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = selectedImgModel == "default",
+                    onClick = { selectedImgModel = "default" }
+                )
+                Text("Turbo")
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                RadioButton(
+                    selected = selectedImgModel == "flux",
+                    onClick = { selectedImgModel = "flux" }
+                )
+                Text("Flux (HQ)")
+            }
+        }
+
+        Spacer(Modifier.weight(1f))
+        
+        Button(onClick = {
+            dataManager.saveApiKey(apiKey)
+            dataManager.saveChatModel(selectedChatModel)
+            dataManager.saveImgModel(selectedImgModel)
+            Toast.makeText(context, "All Settings Saved!", Toast.LENGTH_SHORT).show()
+        }, modifier = Modifier.fillMaxWidth()) {
+            Text("Save 💾")
+        }
+    }
+}
