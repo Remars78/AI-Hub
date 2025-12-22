@@ -1,5 +1,6 @@
 package com.example.aihub
 
+import coil.request.CachePolicy
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import coil.ImageLoader
@@ -268,6 +269,7 @@ fun ChatBubble(message: Message) {
 }
 
 // --- TAB 2: IMAGE GEN (FIXED & EMOJI) ---
+
 @Composable
 fun IMGTab() {
     val context = LocalContext.current
@@ -279,13 +281,13 @@ fun IMGTab() {
     var lastError by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
-    // --- FIX: СОЗДАЕМ ЗАГРУЗЧИК С "ТЕРПЕНИЕМ" (Ждет 100 секунд) ---
+    // 1. Создаем клиент с УВЕЛИЧЕННЫМ тайм-аутом (60 сек)
     val customImageLoader = remember {
         ImageLoader.Builder(context)
             .okHttpClient {
                 OkHttpClient.Builder()
-                    .connectTimeout(100, TimeUnit.SECONDS) // Ждем подключения
-                    .readTimeout(100, TimeUnit.SECONDS)    // Ждем картинку
+                    .connectTimeout(60, TimeUnit.SECONDS)
+                    .readTimeout(60, TimeUnit.SECONDS)
                     .build()
             }
             .build()
@@ -320,7 +322,8 @@ fun IMGTab() {
                 }
 
                 lastError = null 
-                imageUrl = null
+                // ВАЖНО: Сбрасываем URL перед новым запросом, чтобы UI понял, что идет загрузка
+                imageUrl = null 
 
                 scope.launch {
                     var finalPrompt = prompt
@@ -342,10 +345,14 @@ fun IMGTab() {
                         }
                     }
 
-                    // Генерация ссылки
+                    // 2. Генерируем АБСОЛЮТНО УНИКАЛЬНЫЙ URL
                     val encoded = URLEncoder.encode(finalPrompt, "UTF-8")
-                    val randomSeed = (1..9999).random()
-                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&seed=$randomSeed"
+                    // Используем время + рандом, чтобы наверняка сбить любой кэш
+                    val uniqueId = "${System.currentTimeMillis()}-${(1..999).random()}"
+                    
+                    // Добавляем параметр no-cache просто для вида, главное уникальность в uniqueId
+                    imageUrl = "https://image.pollinations.ai/prompt/$encoded?nologo=true&cachebuster=$uniqueId"
+                    
                     isEnhancing = false
                 }
             },
@@ -368,10 +375,14 @@ fun IMGTab() {
                 colors = CardDefaults.cardColors(containerColor = Color.Black)
             ) {
                 SubcomposeAsyncImage(
-                    // --- ВАЖНО: ПЕРЕДАЕМ НАШ "ТЕРПЕЛИВЫЙ" ЗАГРУЗЧИК ---
-                    imageLoader = customImageLoader, 
+                    imageLoader = customImageLoader,
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(imageUrl)
+                        // 3. ОТКЛЮЧАЕМ ВСЕ ВИДЫ КЭША И ПУЛИНГА
+                        .memoryCachePolicy(CachePolicy.DISABLED) // Не запоминать в ОЗУ
+                        .diskCachePolicy(CachePolicy.DISABLED)   // Не сохранять на диск
+                        .networkCachePolicy(CachePolicy.DISABLED) // Всегда идти в сеть
+                        .addHeader("Connection", "close")        // Разрывать связь после загрузки (не ждать)
                         .crossfade(true)
                         .listener(
                             onError = { _, result ->
@@ -412,8 +423,6 @@ fun IMGTab() {
         }
     }
 }
-
-
 
 
 // --- TAB 3: SETTINGS ---
