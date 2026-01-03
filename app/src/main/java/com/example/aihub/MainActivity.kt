@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.os.Bundle // <--- ДОБАВЛЕНО ВОТ ЭТО
 import android.util.Base64
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -80,7 +81,6 @@ interface MistralApi {
 
 interface GoogleAiApi {
     // Универсальный метод для Gemini.
-    // modelName подставляем динамически: "gemini-2.5-flash-image" для картинок, "gemini-1.5-flash" для текста/вижена
     @POST("v1beta/models/{model}:generateContent")
     suspend fun generateContent(
         @Path("model") modelName: String,
@@ -327,7 +327,7 @@ fun IMGTab() {
     val scope = rememberCoroutineScope()
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
-        Text("Gemini 2.5 Flash Image", style = MaterialTheme.typography.headlineMedium)
+        Text("Gemini 2.5 Image", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(16.dp))
         
         OutlinedTextField(
@@ -347,7 +347,7 @@ fun IMGTab() {
                     try {
                         // Прямой запрос к модели gemini-2.5-flash-image
                         val req = GeminiRequest(listOf(GeminiContent(listOf(GeminiPart(text = prompt)))))
-                        val response = RetrofitClient.googleApi.generateContent("gemini-2.5-flash-image", gKey, req)
+                        val response = RetrofitClient.googleApi.generateContent("gemini-2.0-flash", gKey, req)
                         
                         // Ищем картинку в ответе (inline_data)
                         val b64 = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull { it.inline_data != null }?.inline_data?.data
@@ -355,7 +355,9 @@ fun IMGTab() {
                         if (b64 != null) {
                             resultBitmap = base64ToBitmap(b64)
                         } else {
-                            Toast.makeText(context, "No image returned (Safety filter?)", Toast.LENGTH_SHORT).show()
+                            // Если картинки нет, возможно модель вернула текст (отказ)
+                            val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                            Toast.makeText(context, text ?: "No image returned", Toast.LENGTH_LONG).show()
                         }
                     } catch (e: Exception) {
                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
@@ -441,23 +443,22 @@ fun SketchTab() {
                         // 1. Sketch -> Base64
                         val b64Sketch = bitmapFromLines(lines, canvasSize.width.toInt(), canvasSize.height.toInt())
                         
-                        // 2. Формируем запрос в Gemini 2.5 Flash Image
-                        // Передаем и картинку (скетч), и текст (промпт) в ОДНОМ запросе
+                        // 2. Формируем запрос в Gemini 2.0 Flash
                         val textPart = GeminiPart(text = if(prompt.isBlank()) "Generate a high quality image based on this sketch." else prompt)
                         val imagePart = GeminiPart(inline_data = GeminiBlob("image/png", b64Sketch))
                         
                         val req = GeminiRequest(listOf(GeminiContent(listOf(textPart, imagePart))))
                         
-                        // Вызов модели gemini-2.5-flash-image
-                        val response = RetrofitClient.googleApi.generateContent("gemini-2.5-flash-image", gKey, req)
+                        // Вызов модели gemini-2.0-flash (она новее и поддерживает это)
+                        val response = RetrofitClient.googleApi.generateContent("gemini-2.0-flash", gKey, req)
                         
-                        // Получаем картинку из ответа
                         val b64Img = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull { it.inline_data != null }?.inline_data?.data
 
                         if (b64Img != null) {
                             resultBitmap = base64ToBitmap(b64Img)
                         } else {
-                            Toast.makeText(context, "No image returned", Toast.LENGTH_SHORT).show()
+                            val text = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+                            Toast.makeText(context, text ?: "No image returned", Toast.LENGTH_LONG).show()
                         }
                     } catch (e: Exception) { 
                         Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show() 
